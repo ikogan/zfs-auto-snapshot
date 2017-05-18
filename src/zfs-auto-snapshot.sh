@@ -20,7 +20,7 @@
 #
 
 # Set the field separator to a literal tab and newline.
-IFS="	
+IFS="
 "
 
 # Set default program options.
@@ -69,12 +69,14 @@ print_usage ()
       --send-full=F  Send zfs full backup. Unimplemented.
       --send-incr=F  Send zfs incremental backup. Unimplemented.
       --sep=CHAR     Use CHAR to separate date stamps in snapshot names.
+      --pool=POOL    Only snapshot filesystems on the specified pool.
   -g, --syslog       Write messages into the system log.
   -r, --recursive    Snapshot named filesystem and all descendants.
   -v, --verbose      Print info messages.
       --destroy-only Only destroy older snapshots, do not create new ones.
+			--pool				 Only snapshot datasets and volumes on the specified pool.
       name           Filesystem and volume names, or '//' for all ZFS datasets.
-" 
+"
 }
 
 
@@ -174,7 +176,7 @@ do_snapshots () # properties, flags, snapname, oldglob, [targets...]
 			else
 				WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
 				continue
-			fi 
+			fi
 		fi
 
 		# Retain at most $opt_keep number of old snapshots of this filesystem,
@@ -191,7 +193,7 @@ do_snapshots () # properties, flags, snapname, oldglob, [targets...]
 				KEEP=$(( $KEEP - 1 ))
 				if [ "$KEEP" -le '0' ]
 				then
-					if do_run "zfs destroy -d $FLAGS '$jj'" 
+					if do_run "zfs destroy -d $FLAGS '$jj'"
 					then
 						DESTRUCTION_COUNT=$(( $DESTRUCTION_COUNT + 1 ))
 					else
@@ -209,7 +211,7 @@ do_snapshots () # properties, flags, snapname, oldglob, [targets...]
 
 GETOPT=$(getopt \
   --longoptions=default-exclude,dry-run,fast,skip-scrub,recursive \
-  --longoptions=event:,keep:,label:,prefix:,sep: \
+  --longoptions=event:,keep:,label:,prefix:,sep:,pool: \
   --longoptions=debug,help,quiet,syslog,verbose \
   --longoptions=pre-snapshot:,post-snapshot:,destroy-only \
   --options=dnshe:l:k:p:rs:qgv \
@@ -297,7 +299,7 @@ do
 			shift 1
 			;;
 		(--sep)
-			case "$2" in 
+			case "$2" in
 				([[:alnum:]_.:\ -])
 					:
 					;;
@@ -311,6 +313,10 @@ do
 					;;
 			esac
 			opt_sep="$2"
+			shift 2
+			;;
+		(--pool)
+			opt_pool="$2"
 			shift 2
 			;;
 		(-g|--syslog)
@@ -345,7 +351,7 @@ if [ "$#" -eq '0' ]
 then
 	print_log error "The filesystem argument list is empty."
 	exit 133
-fi 
+fi
 
 # Count the number of times '//' appears on the command line.
 SLASHIES='0'
@@ -367,9 +373,16 @@ fi
 ZPOOL_STATUS=$(env LC_ALL=C zpool status 2>&1 ) \
   || { print_log error "zpool status $?: $ZPOOL_STATUS"; exit 135; }
 
-ZFS_LIST=$(env LC_ALL=C zfs list -H -t filesystem,volume -s name \
-  -o name,com.sun:auto-snapshot,com.sun:auto-snapshot:"$opt_label") \
-  || { print_log error "zfs list $?: $ZFS_LIST"; exit 136; }
+if [ ! -z "$opt_pool" ]
+then
+  ZFS_LIST=$(env LC_ALL=C zfs list -H -t filesystem,volume -s name -r "$opt_pool" \
+    -o name,com.sun:auto-snapshot,com.sun:auto-snapshot:"$opt_label") \
+    || { print_log error "zfs list $?: $ZFS_LIST"; exit 136; }
+else
+  ZFS_LIST=$(env LC_ALL=C zfs list -H -t filesystem,volume -s name \
+    -o name,com.sun:auto-snapshot,com.sun:auto-snapshot:"$opt_label") \
+    || { print_log error "zfs list $?: $ZFS_LIST"; exit 136; }
+fi
 
 if [ -n "$opt_fast_zfs_list" ]
 then
@@ -402,7 +415,7 @@ done
 ZPOOLS_SCRUBBING=$(echo "$ZPOOL_STATUS" | awk -F ': ' \
   '$1 ~ /^ *pool$/ { pool = $2 } ; \
    $1 ~ /^ *scan$/ && $2 ~ /scrub in progress/ { print pool }' \
-  | sort ) 
+  | sort )
 
 # Get a list of pools that cannot do a snapshot.
 ZPOOLS_NOTREADY=$(echo "$ZPOOL_STATUS" | awk -F ': ' \
